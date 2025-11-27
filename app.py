@@ -9,9 +9,11 @@ from scipy.stats import kstest, norm
 
 
 # Simulation utilities
-def roll_sample_means(sample_size: int, sample_count: int, seed: int | None, sides: int = 6) -> np.ndarray:
+def roll_sample_means(
+    sample_size: int, sample_count: int, seed: int | None, sides: int = 6, rng: np.random.Generator | None = None
+) -> np.ndarray:
     """Return sample means for rolling `sample_count` samples of `sample_size` dice."""
-    rng = np.random.default_rng(seed)
+    rng = rng or np.random.default_rng(seed)
     rolls = rng.integers(1, sides + 1, size=(sample_count, sample_size))
     return rolls.mean(axis=1)
 
@@ -20,6 +22,24 @@ def cumulative_means(means: np.ndarray) -> np.ndarray:
     cumsum = np.cumsum(means, dtype=float)
     idx = np.arange(1, len(means) + 1)
     return cumsum / idx
+
+
+def plot_cumulative_mean_of_rolls(rolls: np.ndarray) -> io.BytesIO:
+    """Plot cumulative mean as sample size (number of rolls) grows."""
+    fig, ax = plt.subplots(figsize=(7, 3))
+    ax.plot(np.arange(1, len(rolls) + 1), cumulative_means(rolls), color="#2ca02c", linewidth=1.5)
+    ax.axhline(3.5, color="#d62728", linestyle="--", linewidth=1, label="True mean (3.5)")
+    ax.set_xlabel("Number of rolls (sample size)")
+    ax.set_ylabel("Cumulative mean of rolls")
+    ax.set_title("Law of Large Numbers (by sample size)")
+    ax.legend()
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
 
 
 # Plot helpers
@@ -58,30 +78,12 @@ def plot_histogram(
     return buf
 
 
-def plot_running_mean(means: np.ndarray) -> io.BytesIO:
-    """Plot running mean of sample means (LLN illustration)."""
-    fig, ax = plt.subplots(figsize=(7, 3))
-    ax.plot(np.arange(1, len(means) + 1), cumulative_means(means), color="#2ca02c", linewidth=1.5)
-    ax.axhline(3.5, color="#d62728", linestyle="--", linewidth=1, label="True mean (3.5)")
-    ax.set_xlabel("Number of samples included")
-    ax.set_ylabel("Running mean of sample means")
-    ax.set_title("Law of Large Numbers (running mean)")
-    ax.legend()
-    fig.tight_layout()
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=150)
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-
 # Streamlit UI
 st.set_page_config(page_title="Dice Sample Distribution", page_icon="🎲", layout="wide")
 st.title("Dice Sample Distribution (CLT / LLN demo)")
 st.write(
     "サンプルサイズ n とサンプル数 m を指定してサイコロの標本平均の分布を可視化します。"
-    " 標本平均のヒストグラムに加えて、標本平均の平均がどう収束するかを示すグラフも描画します。"
+    " 標本平均のヒストグラムに加えて、サンプルサイズを増やしたときの累積平均がどう収束するかを示すグラフも描画します。"
 )
 
 with st.sidebar:
@@ -131,22 +133,25 @@ if int(n) * int(m) > 1e8:
 if validation_errors:
     for err in validation_errors:
         st.error(err)
-elif run_btn or "means" not in st.session_state:
+elif run_btn or "means" not in st.session_state or "rolls_for_lln" not in st.session_state:
     with st.spinner("Simulating dice rolls..."):
-        st.session_state.means = roll_sample_means(int(n), int(m), seed)
+        rng = np.random.default_rng(seed)
+        st.session_state.means = roll_sample_means(int(n), int(m), seed, rng=rng)
+        st.session_state.rolls_for_lln = rng.integers(1, 7, size=int(n))
         st.session_state.last_run = time.strftime("%Y-%m-%d %H:%M:%S")
 
 means = st.session_state.get("means")
+rolls_for_lln = st.session_state.get("rolls_for_lln")
 
-if means is None:
+if means is None or rolls_for_lln is None:
     st.info("左の設定で「Run simulation」を押してください。")
 else:
     st.caption(f"Last run: {st.session_state.get('last_run', '')}  |  seed = {seed if seed_opt else 'random'}")
 
     hist_png = plot_histogram(means, sample_size=int(n), xlim=hist_x_lim, ylim=hist_y_lim)
-    run_png = plot_running_mean(means)
+    lln_png = plot_cumulative_mean_of_rolls(rolls_for_lln)
     hist_name = f"sampleDist_n{int(n)}_m{int(m)}.png"
-    run_name = f"meanSampleMean_n{int(n)}_m{int(m)}.png"
+    run_name = f"cumulativeMean_n{int(n)}.png"
 
     # CLT goodness-of-fit (KS test vs normal approximation)
     mu = (1 + 6) / 2
@@ -178,11 +183,11 @@ else:
             mime="image/png",
         )
     with col2:
-        st.subheader("Running mean of sample means")
-        st.image(run_png, caption="標本平均の平均が真の平均 3.5 に近づく様子")
+        st.subheader("Cumulative mean as sample size grows")
+        st.image(lln_png, caption="ロール数（サンプルサイズ）を増やしたときの累積平均")
         st.download_button(
-            "Download running mean (PNG)",
-            data=run_png.getvalue(),
+            "Download cumulative mean (PNG)",
+            data=lln_png.getvalue(),
             file_name=run_name,
             mime="image/png",
         )
@@ -190,6 +195,6 @@ else:
     st.markdown("---")
     st.markdown(
         "- ヒストグラムは中心極限定理によりサンプルサイズ n が大きいほど正規分布に近づきます。\n"
-        "- Running mean は大数の法則の直感的なデモです。m を大きくすると安定して 3.5 に近づきます。\n"
+        "- 累積平均のグラフは、サンプルサイズ（ロール数）を増やしたときに平均が 3.5 に収束する様子を示しています。\n"
         "- seed を指定すると再現可能なシミュレーションになります。"
     )
