@@ -26,12 +26,13 @@ def cumulative_means(means: np.ndarray) -> np.ndarray:
 
 def plot_cumulative_mean_of_rolls(rolls: np.ndarray) -> io.BytesIO:
     """Plot cumulative mean as sample size (number of rolls) grows."""
-    fig, ax = plt.subplots(figsize=(7, 3))
+    fig, ax = plt.subplots(figsize=(7, 4))
     ax.plot(np.arange(1, len(rolls) + 1), cumulative_means(rolls), color="#2ca02c", linewidth=1.5)
     ax.axhline(3.5, color="#d62728", linestyle="--", linewidth=1, label="True mean (3.5)")
     ax.set_xlabel("Number of rolls (sample size)")
     ax.set_ylabel("Cumulative mean of rolls")
     ax.set_title("Law of Large Numbers (by sample size)")
+    ax.set_ylim(1, 6)
     ax.legend()
     fig.tight_layout()
 
@@ -82,17 +83,14 @@ def plot_histogram(
 st.set_page_config(page_title="Dice Sample Distribution", page_icon="🎲", layout="wide")
 st.title("Dice Sample Distribution (CLT / LLN demo)")
 st.write(
-    "サンプルサイズ n とサンプル数 m を指定してサイコロの標本平均の分布を可視化します。"
-    " 標本平均のヒストグラムに加えて、サンプルサイズを増やしたときの累積平均がどう収束するかを示すグラフも描画します。"
+    " サンプル数 m とサンプルサイズ n とを指定してサイコロの標本平均の分布を可視化します．"
+    " 標本平均のヒストグラムに加えて，サンプルサイズを増やしたときの累積平均がどう収束するかを示すグラフも描画します．"
 )
 
 with st.sidebar:
     st.header("Simulation settings")
-    m = st.number_input("Sample count m (number of samples)", min_value=1, max_value=1_000_000, value=5000, step=100)
-    n = st.number_input("Sample size n (rolls per sample)", min_value=1, max_value=100_000, value=30, step=1)
-    st.header("Simulation options")
-    use_seed = st.checkbox("乱数シードを指定する", value=False)
-    seed_opt = st.text_input("Random seed (整数)", value="") if use_seed else ""
+    m = st.number_input("Number of samples; m", min_value=1, max_value=1_000_000, value=1000, step=100)
+    n = st.number_input("Sample size; n", min_value=1, max_value=100_000, value=10, step=1)
     st.header("Plot options")
     manual_x = st.checkbox("ヒストグラム x 軸を手動設定", value=False)
     if manual_x:
@@ -100,7 +98,7 @@ with st.sidebar:
         hist_x_max = st.number_input("x max", value=6.0, step=0.1)
         hist_x_lim = (hist_x_min, hist_x_max)
     else:
-        hist_x_lim = None
+        hist_x_lim = (1.0, 6.0)
     manual_y = st.checkbox("ヒストグラム y 軸を手動設定", value=False)
     if manual_y:
         hist_y_min = st.number_input("y min", value=0.0, step=0.1)
@@ -108,7 +106,9 @@ with st.sidebar:
         hist_y_lim = (hist_y_min, hist_y_max)
     else:
         hist_y_lim = None
-    run_btn = st.button("Run simulation", type="primary")
+    st.header("Simulation options")
+    use_seed = st.checkbox("乱数シードを指定する", value=False)
+    seed_opt = st.text_input("Random seed (整数)", value="") if use_seed else ""
 
 # Input validation
 validation_errors: list[str] = []
@@ -133,7 +133,9 @@ if int(n) * int(m) > 1e8:
 if validation_errors:
     for err in validation_errors:
         st.error(err)
-elif run_btn or "means" not in st.session_state or "rolls_for_lln" not in st.session_state:
+    st.session_state.means = None
+    st.session_state.rolls_for_lln = None
+else:
     with st.spinner("Simulating dice rolls..."):
         rng = np.random.default_rng(seed)
         st.session_state.means = roll_sample_means(int(n), int(m), seed, rng=rng)
@@ -174,17 +176,17 @@ else:
         )
 
     with col1:
-        st.subheader("Sample mean histogram")
-        st.image(hist_png, caption="標本平均の分布（サイコロの出目6面）")
+        st.subheader("Sample distribution")
+        st.image(hist_png, caption="")
         st.download_button(
-            "Download histogram (PNG)",
+            "Download sample distribution (PNG)",
             data=hist_png.getvalue(),
             file_name=hist_name,
             mime="image/png",
         )
     with col2:
-        st.subheader("Cumulative mean as sample size grows")
-        st.image(lln_png, caption="ロール数（サンプルサイズ）を増やしたときの累積平均")
+        st.subheader("Cumulative mean")
+        st.image(lln_png, caption="")
         st.download_button(
             "Download cumulative mean (PNG)",
             data=lln_png.getvalue(),
